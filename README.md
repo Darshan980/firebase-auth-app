@@ -9,7 +9,7 @@ A complete, secure authentication system built with **Firebase Authentication** 
 
 ## 🚀 Live Demo
 
-[View Live Demo](https://your-username.github.io/firebase-auth-app) 
+[View Live Demo](https://darshan980.github.io/firebase-auth-app/) 
 
 ## ✨ Features
 
