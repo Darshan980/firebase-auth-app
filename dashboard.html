@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Firebase Auth App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>🏠 Dashboard</h1>
+            <div>
+                <button class="btn btn-secondary" onclick="window.location.href='profile.html'">Profile</button>
+                <button class="btn btn-danger" id="logout-btn">Logout</button>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">Loading user data...</div>
+        
+        <div id="dashboard-content" class="dashboard-content hidden">
+            <div class="card">
+                <h3>👋 Welcome Back!</h3>
+                <div class="user-info">
+                    <h3>User Information</h3>
+                    <p><strong>Name:</strong> <span id="user-name">Loading...</span></p>
+                    <p><strong>Email:</strong> <span id="user-email">Loading...</span></p>
+                    <p><strong>Email Verified:</strong> <span id="email-verified">Loading...</span></p>
+                    <p><strong>Account Created:</strong> <span id="account-created">Loading...</span></p>
+                    <p><strong>Last Login:</strong> <span id="last-login">Loading...</span></p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🔐 Account Security</h3>
+                <p>Your account is protected by Firebase Authentication.</p>
+                <button class="btn btn-secondary" id="verify-email-btn" style="display: none;">Send Verification Email</button>
+                <button class="btn btn-secondary" onclick="sendPasswordReset()">Reset Password</button>
+            </div>
+            
+            <div class="card">
+                <h3>📊 Quick Stats</h3>
+                <p>This is your secure dashboard. Only authenticated users can access this page.</p>
+                <p>You can add more features here like:</p>
+                <ul style="margin-left: 1rem; margin-top: 0.5rem;">
+                    <li>User profile management</li>
+                    <li>Data visualization</li>
+                    <li>Settings and preferences</li>
+                    <li>Application-specific features</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    
+    <!-- Firebase Config -->
+    <script src="firebase-config.js"></script>
+    
+    <!-- App Logic -->
+    <script src="app.js"></script>
+    
+    <script>
+        let currentUser = null;
+
+        // Protect this page - redirect if not authenticated
+        auth.onAuthStateChanged(async (user) => {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('dashboard-content');
+            
+            if (!user) {
+                // User is not logged in, redirect to login
+                window.location.href = "index.html";
+                return;
+            }
+            
+            currentUser = user;
+            
+            // Update last login in Firestore
+            if (window.isFirestoreAvailable && db) {
+                try {
+                    await db.collection("users").doc(user.uid).update({
+                        lastLogin: new Date()
+                    });
+                } catch (error) {
+                    console.warn('Firestore update error (optional):', error);
+                }
+            }
+            
+            // Load user data
+            await loadUserData(user);
+            
+            // Show content
+            loading.style.display = 'none';
+            content.classList.remove('hidden');
+        });
+
+        async function loadUserData(user) {
+            // Basic user info from Firebase Auth
+            document.getElementById('user-name').textContent = user.displayName || 'Not set';
+            document.getElementById('user-email').textContent = user.email;
+            document.getElementById('email-verified').textContent = user.emailVerified ? '✅ Yes' : '❌ No';
+            
+            // Show verify email button if not verified
+            if (!user.emailVerified) {
+                document.getElementById('verify-email-btn').style.display = 'inline-block';
+            }
+            
+            // Account creation date
+            if (user.metadata.creationTime) {
+                document.getElementById('account-created').textContent = 
+                    new Date(user.metadata.creationTime).toLocaleDateString();
+            }
+            
+            // Try to get additional data from Firestore
+            if (window.isFirestoreAvailable && db) {
+                try {
+                    const userDoc = await db.collection("users").doc(user.uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        if (userData.lastLogin) {
+                            document.getElementById('last-login').textContent = 
+                                userData.lastLogin.toDate().toLocaleString();
+                        } else {
+                            document.getElementById('last-login').textContent = 'Just now';
+                        }
+                    } else {
+                        document.getElementById('last-login').textContent = 'Just now';
+                    }
+                } catch (error) {
+                    console.warn('Firestore read error (optional):', error);
+                    document.getElementById('last-login').textContent = 'Just now';
+                }
+            } else {
+                document.getElementById('last-login').textContent = 'Just now';
+            }
+        }
+
+        // Logout functionality
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            try {
+                await auth.signOut();
+                window.location.href = "index.html";
+            } catch (error) {
+                alert('Error signing out: ' + error.message);
+            }
+        });
+
+        // Email verification
+        document.getElementById('verify-email-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('verify-email-btn');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            
+            try {
+                await currentUser.sendEmailVerification();
+                alert('✅ Verification email sent successfully!\n\nPlease check your email inbox (and spam folder) for the verification link.\n\nEmail sent to: ' + currentUser.email);
+                btn.textContent = 'Email Sent!';
+                setTimeout(() => {
+                    btn.textContent = 'Send Verification Email';
+                    btn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Email verification error:', error);
+                alert('❌ Error sending verification email:\n\n' + error.message + '\n\nPlease try again or check your Firebase Console configuration.');
+                btn.textContent = 'Send Verification Email';
+                btn.disabled = false;
+            }
+        });
+
+        // Password reset
+        async function sendPasswordReset() {
+            if (currentUser && currentUser.email) {
+                if (confirm('Send password reset email to: ' + currentUser.email + '?')) {
+                    try {
+                        await auth.sendPasswordResetEmail(currentUser.email);
+                        alert('✅ Password reset email sent successfully!\n\nPlease check your email inbox (and spam folder) for the reset link.\n\nEmail sent to: ' + currentUser.email);
+                    } catch (error) {
+                        console.error('Password reset error:', error);
+                        alert('❌ Error sending password reset email:\n\n' + error.message + '\n\nPlease try again or check your Firebase Console configuration.');
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - Firebase Auth App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>👤 User Profile</h1>
+            <div>
+                <button class="btn btn-secondary" onclick="window.location.href='dashboard.html'">Dashboard</button>
+                <button class="btn btn-danger" id="logout-btn">Logout</button>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">Loading profile...</div>
+        <div id="error-message" class="error hidden"></div>
+        <div id="success-message" class="success hidden"></div>
+        
+        <div id="profile-content" class="dashboard-content hidden">
+            <div class="card">
+                <h3>📝 Edit Profile</h3>
+                <form id="profile-form">
+                    <div class="form-group">
+                        <label for="display-name">Display Name:</label>
+                        <input type="text" id="display-name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="bio">Bio:</label>
+                        <textarea id="bio" placeholder="Tell us about yourself..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="phone">Phone Number:</label>
+                        <input type="text" id="phone" placeholder="Optional">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="website">Website:</label>
+                        <input type="text" id="website" placeholder="https://yourwebsite.com">
+                    </div>
+                    
+                    <button type="submit" class="btn">Update Profile</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>🔐 Account Information</h3>
+                <div class="user-info">
+                    <p><strong>Email:</strong> <span id="user-email">Loading...</span></p>
+                    <p><strong>Email Verified:</strong> <span id="email-verified">Loading...</span></p>
+                    <p><strong>Account Created:</strong> <span id="account-created">Loading...</span></p>
+                    <p><strong>User ID:</strong> <span id="user-id">Loading...</span></p>
+                </div>
+                
+                <button class="btn btn-secondary" id="verify-email-btn" style="display: none;">
+                    Send Verification Email
+                </button>
+            </div>
+            
+            <div class="card">
+                <h3>⚠️ Danger Zone</h3>
+                <p>These actions cannot be undone.</p>
+                <button class="btn btn-danger" onclick="deleteAccount()" style="margin-top: 1rem;">
+                    Delete Account
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    
+    <!-- Firebase Config -->
+    <script src="firebase-config.js"></script>
+    
+    <!-- App Logic -->
+    <script src="app.js"></script>
+    
+    <script>
+        let currentUser = null;
+
+        // Protect this page - redirect if not authenticated
+        auth.onAuthStateChanged(async (user) => {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('profile-content');
+            
+            if (!user) {
+                window.location.href = "index.html";
+                return;
+            }
+            
+            currentUser = user;
+            await loadProfileData(user);
+            
+            loading.style.display = 'none';
+            content.classList.remove('hidden');
+        });
+
+        async function loadProfileData(user) {
+            // Load basic user info
+            document.getElementById('user-email').textContent = user.email;
+            document.getElementById('email-verified').textContent = user.emailVerified ? '✅ Yes' : '❌ No';
+            document.getElementById('user-id').textContent = user.uid;
+            
+            if (user.metadata.creationTime) {
+                document.getElementById('account-created').textContent = 
+                    new Date(user.metadata.creationTime).toLocaleDateString();
+            }
+            
+            // Show verify email button if not verified
+            if (!user.emailVerified) {
+                document.getElementById('verify-email-btn').style.display = 'inline-block';
+            }
+            
+            // Load profile data from Firestore
+            if (window.isFirestoreAvailable && db) {
+                try {
+                    const userDoc = await db.collection("users").doc(user.uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        document.getElementById('display-name').value = userData.name || user.displayName || '';
+                        document.getElementById('bio').value = userData.bio || '';
+                        document.getElementById('phone').value = userData.phone || '';
+                        document.getElementById('website').value = userData.website || '';
+                    } else {
+                        // Set default values
+                        document.getElementById('display-name').value = user.displayName || '';
+                    }
+                } catch (error) {
+                    console.warn('Firestore read error (optional):', error);
+                    document.getElementById('display-name').value = user.displayName || '';
+                }
+            } else {
+                // Set default values when Firestore is not available
+                document.getElementById('display-name').value = user.displayName || '';
+                document.getElementById('bio').value = '';
+                document.getElementById('phone').value = '';
+                document.getElementById('website').value = '';
+            }
+        }
+
+        // Profile form handler
+        document.getElementById('profile-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const displayName = document.getElementById('display-name').value;
+            const bio = document.getElementById('bio').value;
+            const phone = document.getElementById('phone').value;
+            const website = document.getElementById('website').value;
+            
+            hideMessages();
+            
+            try {
+                // Update Firebase Auth profile
+                await currentUser.updateProfile({
+                    displayName: displayName
+                });
+                
+                // Update Firestore document if available
+                if (window.isFirestoreAvailable && db) {
+                    try {
+                        await db.collection("users").doc(currentUser.uid).set({
+                            name: displayName,
+                            email: currentUser.email,
+                            bio: bio,
+                            phone: phone,
+                            website: website,
+                            updatedAt: new Date()
+                        }, { merge: true });
+                        showSuccess('Profile updated successfully!');
+                    } catch (firestoreError) {
+                        console.warn('Firestore update error:', firestoreError);
+                        showSuccess('Profile updated successfully! (Note: Extended profile data not saved)');
+                    }
+                } else {
+                    showSuccess('Profile updated successfully! (Note: Extended profile data not saved - Firestore not available)');
+                }
+                
+            } catch (error) {
+                showError('Error updating profile: ' + error.message);
+            }
+        });
+
+        // Logout functionality
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            try {
+                await auth.signOut();
+                window.location.href = "index.html";
+            } catch (error) {
+                alert('Error signing out: ' + error.message);
+            }
+        });
+
+        // Email verification
+        document.getElementById('verify-email-btn').addEventListener('click', async () => {
+            try {
+                await currentUser.sendEmailVerification();
+                showSuccess('Verification email sent! Please check your inbox.');
+            } catch (error) {
+                showError('Error sending verification email: ' + error.message);
+            }
+        });
+
+        // Delete account
+        async function deleteAccount() {
+            if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
+                if (confirm('This will permanently delete all your data. Are you absolutely sure?')) {
+                    try {
+                        // Delete user document from Firestore if available
+                        if (window.isFirestoreAvailable && db) {
+                            try {
+                                await db.collection("users").doc(currentUser.uid).delete();
+                            } catch (firestoreError) {
+                                console.warn('Firestore delete error:', firestoreError);
+                            }
+                        }
+                        
+                        // Delete the user account
+                        await currentUser.delete();
+                        
+                        alert('Account deleted successfully.');
+                        window.location.href = "index.html";
+                        
+                    } catch (error) {
+                        if (error.code === 'auth/requires-recent-login') {
+                            alert('For security reasons, please log out and log back in before deleting your account.');
+                        } else {
+                            showError('Error deleting account: ' + error.message);
+                        }
+                    }
+                }
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+        }
+
+        function hideMessages() {
+            document.getElementById('error-message').classList.add('hidden');
+            document.getElementById('success-message').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

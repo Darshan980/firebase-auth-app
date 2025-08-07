@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Firebase Auth App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Sign Up</h1>
+        
+        <div id="error-message" class="error hidden"></div>
+        <div id="success-message" class="success hidden"></div>
+        <div id="loading" class="loading">Creating account...</div>
+        
+        <form id="signup-form">
+            <div class="form-group">
+                <label for="name">Full Name:</label>
+                <input type="text" id="name" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" required minlength="6">
+                <small style="color: #666;">Password must be at least 6 characters long</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirm-password">Confirm Password:</label>
+                <input type="password" id="confirm-password" required>
+            </div>
+            
+            <button type="submit" class="btn">Sign Up</button>
+        </form>
+        
+        <div class="link">
+            <p>Already have an account? <a href="index.html">Login here</a></p>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    
+    <!-- Firebase Config -->
+    <script src="firebase-config.js"></script>
+    
+    <!-- App Logic -->
+    <script src="app.js"></script>
+    
+    <script>
+        // Check if user is already logged in
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                window.location.href = "dashboard.html";
+            }
+        });
+
+        // Signup form handler
+        document.getElementById('signup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const loading = document.getElementById('loading');
+            
+            // Hide previous messages
+            hideMessages();
+            
+            // Validate passwords match
+            if (password !== confirmPassword) {
+                showError('Passwords do not match.');
+                return;
+            }
+            
+            // Validate password strength
+            if (password.length < 6) {
+                showError('Password must be at least 6 characters long.');
+                return;
+            }
+            
+            loading.style.display = 'block';
+            
+            try {
+                // Create user account
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                const user = userCredential.user;
+                
+                // Update user profile with display name
+                await user.updateProfile({
+                    displayName: name
+                });
+                
+                // Save user data to Firestore (bonus feature)
+                if (window.isFirestoreAvailable && db) {
+                    try {
+                        await db.collection("users").doc(user.uid).set({
+                            name: name,
+                            email: email,
+                            createdAt: new Date(),
+                            lastLogin: new Date()
+                        });
+                        console.log('User profile saved to Firestore');
+                    } catch (firestoreError) {
+                        console.warn('Firestore error (optional):', firestoreError);
+                    }
+                } else {
+                    console.log('Firestore not available - user profile not saved');
+                }
+                
+                // Send email verification (bonus feature)
+                try {
+                    await user.sendEmailVerification();
+                    showSuccess('Account created successfully! Please check your email for verification.');
+                } catch (emailError) {
+                    showSuccess('Account created successfully!');
+                }
+                
+                setTimeout(() => {
+                    window.location.href = "dashboard.html";
+                }, 2000);
+                
+            } catch (error) {
+                showError(getErrorMessage(error.code));
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+        }
+
+        function hideMessages() {
+            document.getElementById('error-message').classList.add('hidden');
+            document.getElementById('success-message').classList.add('hidden');
+        }
+
+        function getErrorMessage(errorCode) {
+            switch (errorCode) {
+                case 'auth/email-already-in-use':
+                    return 'An account with this email already exists.';
+                case 'auth/invalid-email':
+                    return 'Invalid email address.';
+                case 'auth/weak-password':
+                    return 'Password is too weak. Please choose a stronger password.';
+                case 'auth/operation-not-allowed':
+                    return 'Email/password accounts are not enabled.';
+                default:
+                    return 'Failed to create account. Please try again.';
+            }
+        }
+    </script>
+</body>
+</html>
